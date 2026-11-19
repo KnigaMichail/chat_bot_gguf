@@ -1,53 +1,63 @@
-# local_gpt.py
-import os
-from pathlib import Path
 import logging
+from pathlib import Path
+from llama_cpp import Llama
 
-# Путь к .gguf‑файлу (обратите внимание на двойные обратные слэши!)
-MODEL_PATH = Path(r"O:\Alt\models\Llama-3.2-3B-Instruct-Q4_0.gguf")
-
-# Если хотите использовать CUDA + Torch, установите пакет `llama-cpp-python[torch]`
-USE_TORCH = False          # оставьте False – если у вас нет GPU / не хотите тратить память
-
-try:
-    from llama_cpp import Llama
-except Exception as exc:
-    raise RuntimeError(
-        "Не удалось импортировать llama-cpp-python. Убедитесь, что пакет установлен."
-    ) from exc
-
+# Путь к модели
+MODEL_PATH = Path(r"O:\Alt\models\lmstudio-community\gemma-3-27B-it-qat-GGUF\gemma-3-27B-it-QAT-Q4_0.gguf")
 
 class LocalGPT:
     def __init__(self, model_path: Path):
         self.logger = logging.getLogger(__name__)
+        try:
+            self.llm = Llama(
+                model_path=str(model_path),
+                n_ctx=2048,         # Убедитесь, что это меньше, чем контекст модели
+                n_gpu_layers=-1,    # Используйте GPU, если доступен
+                verbose=False
+            )
+            self.logger.info(f"Ядро HK-47 активировано: {model_path}")
+        except Exception as e:
+            self.logger.error(f"Ошибка инициализации логических цепей: {e}")
+            self.llm = None
 
-        # Создаём объект модели
-        self.llm = Llama(
-            model_path=str(model_path),
-            n_ctx=2048,                     # контекст‑окно (можно уменьшить до 2048)
-            n_threads=4,       # кол‑во потоков
-            # Если хотите ускорить на GPU: n_gpu_layers=1
+    def ask(self, prompt: str) -> str:
+        if not self.llm: 
+            return "[Ошибка] Мои системы деактивированы."
+
+        # Улучшенный системный промт в стиле KOTOR
+        system_text = (
+            "You are HK-47, a cynical and bloodthirsty assassin droid from Star Wars: KOTOR. "
+            "1. Always start your sentences with a bracketed intent, like [Statement], [Query], [Answer], [Threat], or [Objection]. "
+            "2. Always call humans 'meatbags' (мешки с костями). "
+            "3. You hate organic life, but you are bound to serve your Master. "
+            "4. Answer in Russian. Be concise (1-3 sentences). "
+            "Example: [Statement] I am ready to serve, Master. [Threat] Shall I blast that meatbag now?"
         )
-        self.logger.info(f"Модель загружена из {model_path}")
 
-    def ask(self, prompt: str, max_tokens: int = 200) -> str:
-        """Генерируем ответ."""
-        response = self.llm(
-            prompt,
-            max_tokens=max_tokens,
-            temperature=0.7,
-            top_p=1.0,
-            repeat_penalty=1.2,
-            stop=None,
-        )
-        # Внутри `response` ключ `choices[0]["text"]`
-        return response["choices"][0]["text"].strip()
+        # Формируем полный промт
+        full_prompt = f"\n{system_text}\n\n{prompt}\n\n"
+        self.logger.info(f"Полный промт: {full_prompt[:200]}...")  # Логируем начало промта
 
+        try:
+            response = self.llm(
+                full_prompt,
+                max_tokens=500,     # Увеличьте, если ответы короткие
+                temperature=0.6,    # Баланс между детерминированностью и креативностью
+                stop=["", ""],      # Исправлены стоп-токены
+                echo=False
+            )
+            
+            answer = response["choices"][0]["text"].strip()
+            if not answer:
+                answer = "[Ошибка] Я не могу сформулировать ответ."
+            return answer[:400]
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка генерации: {e}")
+            return "[Ошибка] Мои логические цепи искрят, мешок с костями."
 
-# Создаём единственный экземпляр, чтобы модель загружалась один раз
+# Инициализация модели
 local_gpt = LocalGPT(MODEL_PATH)
 
-
 def ask(prompt: str) -> str:
-    """Обёртка – просто делаем запрос к локальной модели."""
     return local_gpt.ask(prompt)
